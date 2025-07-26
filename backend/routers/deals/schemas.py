@@ -17,3 +17,9 @@ class Deal(DealBase):
 
     class Config:
         from_attributes = True # Pydantic v2's way of saying "orm_mode = True"
+
+
+class DealUpdate(BaseModel):
+    threshold: int | None = Field(None, gt=0, description="The quantity needed to unlock this deal.")
+    discount: float | None = Field(None, gt=0, lt=1, description="The discount percentage, e.g., 0.15 for 15% off.")
+    is_active: bool | None = None

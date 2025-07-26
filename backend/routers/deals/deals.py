@@ -6,6 +6,7 @@ from dependencies.get_current_user import get_current_user
 from config import get_db
 from models import Deal as DealModel, Product as ProductModel
 from .schemas import DealCreate, Deal as DealSchema
+from .schemas import DealUpdate
 from sqlalchemy import select
 
 deals_router = APIRouter(prefix="/deals", tags=["Deals"])
@@ -52,3 +53,66 @@ async def create_deal_for_product(
     await db.refresh(new_deal)
 
     return new_deal
+
+@deals_router.put(
+    "/{deal_id}",
+    response_model=DealSchema,
+    dependencies=[Depends(require_permission(resource="deals", permission="write"))]
+)
+async def update_deal(
+    deal_id: uuid.UUID,
+    deal_data: DealUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Endpoint for a supplier to update one of their deals."""
+    supplier_id = current_user.get("user_id")
+
+    # To verify ownership, we must join through the product table
+    query = select(DealModel).join(ProductModel).where(
+        DealModel.id == deal_id,
+        ProductModel.supplier_id == uuid.UUID(supplier_id)
+    )
+    result = await db.execute(query)
+    deal_to_update = result.scalar_one_or_none()
+
+    if not deal_to_update:
+        raise HTTPException(status_code=404, detail="Deal not found or you do not have permission to edit it.")
+
+    # Update the deal with the new data
+    update_data = deal_data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(deal_to_update, key, value)
+    
+    await db.commit()
+    await db.refresh(deal_to_update)
+    
+    return deal_to_update
+
+@deals_router.delete(
+    "/{deal_id}",
+    status_code=204,
+    dependencies=[Depends(require_permission(resource="deals", permission="delete"))]
+)
+async def delete_deal(
+    deal_id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Endpoint for a supplier to delete one of their deals."""
+    supplier_id = current_user.get("user_id")
+
+    # Verify ownership before deleting
+    query = select(DealModel).join(ProductModel).where(
+        DealModel.id == deal_id,
+        ProductModel.supplier_id == uuid.UUID(supplier_id)
+    )
+    result = await db.execute(query)
+    deal_to_delete = result.scalar_one_or_none()
+
+    if deal_to_delete:
+        await db.delete(deal_to_delete)
+        await db.commit()
+
+    # Return 204 No Content whether the deal was found or not
+    return
