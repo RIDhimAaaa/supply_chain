@@ -1,8 +1,13 @@
+from sqlalchemy.ext.asyncio import AsyncSession # Use AsyncSession
+from sqlalchemy import select # Use the new select statement style
+from config import supabase_admin, get_db
+from models import Profile, Role
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import EmailStr, BaseModel
 from routers.auth.schemas import UserSignup, UserLogin, RefreshTokenRequest, AuthResponse
 from routers.auth.helpers import create_auth_response, create_refresh_response, handle_auth_error, validate_token_refresh
 from config import supabase
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,24 +18,49 @@ class PasswordReset(BaseModel):
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 @auth_router.post("/signup")
-def signup(user: UserSignup):
+async def signup(user: UserSignup, db: AsyncSession = Depends(get_db)): # Note: async def and AsyncSession
+    # 1. Sign up the user in Supabase Auth
     result = supabase.auth.sign_up(
         {"email": user.email, "password": user.password}
     )
 
     if result.user is None:
-        raise HTTPException(status_code=400, detail="Signup failed")
+        raise HTTPException(status_code=400, detail="Signup failed. User may already exist.")
+    
+    user_id = result.user.id
 
-    supabase.table("profiles").insert({
-        "id": result.user.id,
-        "username": user.username,
-        "email": user.email
-    }).execute()
+    # 2. Set the user's role in the user_metadata using the ADMIN client
+    try:
+        supabase_admin.auth.admin.update_user_by_id(
+            user_id, {"user_metadata": {"role": "vendor"}}
+        )
+    except Exception as e:
+        logger.error(f"Failed to set role for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to initialize user role.")
+
+    # 3. Get the 'vendor' role from the database asynchronously
+    query = select(Role).where(Role.name == "vendor")
+    result_role = await db.execute(query)
+    vendor_role = result_role.scalar_one_or_none() # Use scalar_one_or_none()
+
+    if vendor_role is None:
+        raise HTTPException(status_code=500, detail="Default 'vendor' role not configured in the database.")
+
+    # 4. Create and save the user's profile asynchronously
+    new_profile = Profile(
+        id=user_id,
+        full_name=user.username,
+        email=user.email,
+        role_id=vendor_role.id,
+        is_approved=True 
+    )
+    db.add(new_profile)
+    await db.commit() # Use await for commit
 
     return {"message": "Check your email to confirm sign-up."}
 
 @auth_router.post("/login", response_model=AuthResponse)
-def login(user: UserLogin):
+async def login(user: UserLogin, db: AsyncSession = Depends(get_db)):
     try:
         result = supabase.auth.sign_in_with_password({
             "email": user.email,

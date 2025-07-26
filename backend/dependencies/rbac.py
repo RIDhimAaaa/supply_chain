@@ -19,6 +19,24 @@ RESOURCES_FOR_ROLES = {
         'content': ['read', 'write', 'delete'],  
         'reports': ['read', 'write'],  
     },
+    'supplier': {
+        'products': ['read', 'write', 'delete'], # Suppliers can manage products
+        'deals': ['read', 'write', 'delete'],    # Suppliers can manage deals
+        'users/me': ['read', 'write'],           # Suppliers can manage their own profile
+    },
+     'vendor': {
+        'products': ['read'],                    # Vendors can view products
+        'deals': ['read'],                       # Vendors can view deals
+        'cart': ['read', 'write', 'delete'],     # Vendors can manage their cart
+        'orders': ['read'],                      # Vendors can view their finalized orders
+        'users/me': ['read', 'write'],           # Vendors can manage their own profile
+    },
+    'agent': {
+        'manifests': ['read'],                   # Agents can view pickup manifests
+        'routes': ['read'],                      # Agents can view delivery routes
+        'orders': ['write'],                     # Agents can update order status (e.g., 'delivered')
+        'users/me': ['read', 'write'],           # Agents can manage their own profile
+    },
     'user': {
         'users/me': ['read', 'write'], 
         'users/profiles': ['read'], 
