@@ -77,3 +77,22 @@ class CartItem(Base):
 
     vendor = relationship("Profile", foreign_keys=[vendor_id])
     product = relationship("Product")
+
+# In models.py
+
+class Application(Base):
+    __tablename__ = "applications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
+    requested_role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
+    status = Column(String, default='pending', nullable=False)
+    notes = Column(Text, nullable=True)
+    document_url = Column(String, nullable=True) # <-- ADD THIS LINE
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    user = relationship("Profile")
+    requested_role = relationship("Role")
