@@ -18,3 +18,12 @@ class Product(ProductBase):
 
     class Config:
         from_attributes = True  # Updated for Pydantic v2
+
+
+class ProductUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    unit: str | None = None
+    base_price: float | None = None
+    img_emoji: str | None = None
+    is_available: bool | None = None
