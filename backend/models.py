@@ -1,8 +1,9 @@
 # models.py
 from sqlalchemy import Column, String, DateTime, Text, Boolean, ForeignKey, Integer, Numeric
-from sqlalchemy.dialects.postgresql import UUID, GEOGRAPHY
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from geoalchemy2 import Geography
 from config import Base
 import uuid
 
@@ -21,7 +22,7 @@ class Profile(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     phone = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)
-    location = Column(GEOGRAPHY(geometry_type='POINT', srid=4326), nullable=True)
+    location = Column(Geography(geometry_type='POINT', srid=4326), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     is_approved = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
