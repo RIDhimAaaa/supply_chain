@@ -120,7 +120,11 @@ def require_permission(resource: str = None, permission: str = None):
     """
     def check_rbac(request: Request):
         """RBAC dependency function"""
+        # Import here to avoid circular imports
+        from dependencies.get_current_user import get_current_user
+        
         try:
+            # Get current user from request state (should be set by middleware or route dependency)
             current_user = getattr(request.state, 'current_user', None)
             if not current_user:
                 raise HTTPException(
@@ -128,11 +132,7 @@ def require_permission(resource: str = None, permission: str = None):
                     detail="Authentication required"
                 )
 
-            user_role = 'user'  # default fallback to match registration default
-            if isinstance(current_user, dict) and 'role' in current_user:
-                user_role = current_user['role']
-            else:
-                user_role = getattr(current_user, 'role', 'agent')
+            user_role = current_user.get('role', 'user')  # Get role from current_user
 
             resource_name = resource or normalize_path(str(request.url.path))
             required_permission = permission or translate_method_to_action(request.method)

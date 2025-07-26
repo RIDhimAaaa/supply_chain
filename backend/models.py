@@ -17,8 +17,8 @@ class Profile(Base):
     
     # --- Merged Fields ---
     id = Column(UUID(as_uuid=True), primary_key=True) # This should reference auth.users, but your boilerplate might handle this differently. Keeping it simple for now.
-    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
-    full_name = Column(String, nullable=False)
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)  # Made nullable for initial profile creation
+    full_name = Column(String, nullable=True)  # Made nullable for initial creation
     email = Column(String, unique=True, index=True, nullable=False)
     phone = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)

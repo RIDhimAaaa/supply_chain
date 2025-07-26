@@ -1,12 +1,12 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uuid
 
 class ProductBase(BaseModel):
-    name: str
-    description: str | None = None
-    unit: str
-    base_price: float
-    img_emoji: str | None = None
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = Field(None, max_length=1000)
+    unit: str = Field(..., min_length=1, max_length=50)
+    base_price: float = Field(..., gt=0, description="Price must be greater than 0")
+    img_emoji: str | None = Field(None, max_length=10)
 
 class ProductCreate(ProductBase):
     pass
@@ -17,4 +17,13 @@ class Product(ProductBase):
     is_available: bool
 
     class Config:
-        orm_mode = True # This tells Pydantic to read the data from an ORM model
+        from_attributes = True  # Updated for Pydantic v2
+
+
+class ProductUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    unit: str | None = None
+    base_price: float | None = None
+    img_emoji: str | None = None
+    is_available: bool | None = None

@@ -5,18 +5,40 @@ Contains business logic separated from route handlers for better maintainability
 import logging
 import uuid
 import os
+import asyncio
 from datetime import datetime
 from typing import Dict, Any, Optional
 from fastapi import HTTPException, status, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.sql import func
+from sqlalchemy.exc import DisconnectionError, OperationalError
 
 from config import supabase, supabase_admin
 from models import Profile
 from routers.users.schemas import ProfileUpdate, UserProfileResponse
 
 logger = logging.getLogger(__name__)
+
+
+async def retry_db_operation(operation, max_retries=3, delay=1):
+    """
+    Retry database operations with exponential backoff
+    """
+    for attempt in range(max_retries):
+        try:
+            return await operation()
+        except (DisconnectionError, OperationalError) as e:
+            logger.warning(f"Database operation failed (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt == max_retries - 1:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Database connection temporarily unavailable. Please try again."
+                )
+            await asyncio.sleep(delay * (2 ** attempt))  # Exponential backoff
+        except Exception as e:
+            logger.error(f"Unexpected error in database operation: {e}")
+            raise
 
 
 async def get_or_create_user_profile(
@@ -35,23 +57,30 @@ async def get_or_create_user_profile(
     """
     user_id = current_user["user_id"]
     
-    # Get user profile
-    result = await db.execute(
-        select(Profile).where(Profile.id == user_id)
-    )
-    profile = result.scalar_one_or_none()
+    async def _get_profile():
+        # Get user profile
+        result = await db.execute(
+            select(Profile).where(Profile.id == user_id)
+        )
+        return result.scalar_one_or_none()
+    
+    profile = await retry_db_operation(_get_profile)
     
     if not profile:
-        # Create profile if it doesn't exist
-        profile = Profile(
-            id=user_id,
-            email=current_user["email"],
-            is_active=True
-        )
-        db.add(profile)
-        await db.commit()
-        await db.refresh(profile)
-        logger.info(f"Created new profile for user: {user_id}")
+        async def _create_profile():
+            # Create profile if it doesn't exist
+            profile = Profile(
+                id=user_id,
+                email=current_user["email"],
+                is_active=True
+            )
+            db.add(profile)
+            await db.commit()
+            await db.refresh(profile)
+            logger.info(f"Created new profile for user: {user_id}")
+            return profile
+        
+        profile = await retry_db_operation(_create_profile)
     
     return profile
 

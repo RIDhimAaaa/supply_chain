@@ -44,9 +44,17 @@ if DATABASE_URL:
     async_engine = create_async_engine(
         asyncpg_url,
         echo=False,
-        pool_pre_ping=False, 
-        pool_size=10,  # Increased for better performance
-        max_overflow=5  # Allow some overflow
+        pool_pre_ping=True,  # Enable connection health checks
+        pool_size=5,  # Reduced for Supabase connection limits
+        max_overflow=10,  # Allow more overflow
+        pool_timeout=30,  # Timeout for getting connection from pool
+        pool_recycle=3600,  # Recycle connections every hour
+        connect_args={
+            "command_timeout": 60,  # Command timeout
+            "server_settings": {
+                "jit": "off",  # Disable JIT for better compatibility
+            }
+        }
     )
 
     AsyncSessionLocal = sessionmaker(
@@ -63,7 +71,13 @@ async def get_db():
     if AsyncSessionLocal is None:
         raise Exception("Database not configured")
     async with AsyncSessionLocal() as session:
-        yield session
+        try:
+            yield session
+        except Exception as e:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
 
 async def init_db():
     if async_engine is None:

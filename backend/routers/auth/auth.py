@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession # Use AsyncSession
 from sqlalchemy import select # Use the new select statement style
 from config import supabase_admin, get_db
 from models import Profile, Role
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import EmailStr, BaseModel
 from routers.auth.schemas import UserSignup, UserLogin, RefreshTokenRequest, AuthResponse
 from routers.auth.helpers import create_auth_response, create_refresh_response, handle_auth_error, validate_token_refresh
@@ -49,7 +49,7 @@ async def signup(user: UserSignup, db: AsyncSession = Depends(get_db)): # Note: 
     # 4. Create and save the user's profile asynchronously
     new_profile = Profile(
         id=user_id,
-        full_name=user.username,
+        full_name=f"{user.first_name} {user.last_name}" if user.first_name or user.last_name else "New Vendor",
         email=user.email,
         role_id=vendor_role.id,
         is_approved=True 
