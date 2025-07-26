@@ -1,10 +1,9 @@
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from config import JWT_SECRET_KEY
+from config import JWT_SECRET_KEY, get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
-from config import get_db
 import jwt
 import os
 import logging
@@ -38,9 +37,9 @@ async def get_current_user(
         user_id = payload.get("sub")
         email = payload.get("email")
         user_metadata = payload.get("user_metadata", {})
-        role = user_metadata.get("role", "user")  # default to user
+        jwt_role = user_metadata.get("role", "user")  # role from JWT as fallback
 
-        logger.info(f"Decoded user: {user_id}, email: {email}, role: {role}")
+        logger.info(f"Decoded user: {user_id}, email: {email}, JWT role: {jwt_role}")
         
         if not user_id:
             raise HTTPException(
@@ -49,15 +48,35 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+        # Check database for current role (this ensures we get the most up-to-date role)
+        current_role = jwt_role  # fallback to JWT role
+        try:
+            from models import Profile, Role
+            result = await db.execute(
+                select(Profile, Role.name.label('role_name'))
+                .join(Role, Profile.role_id == Role.id, isouter=True)
+                .where(Profile.id == user_id)
+            )
+            profile_with_role = result.first()
+            
+            if profile_with_role and profile_with_role.role_name:
+                current_role = profile_with_role.role_name
+                logger.info(f"Updated role from database: {current_role}")
+            else:
+                logger.info(f"No role found in database, using JWT role: {jwt_role}")
+                
+        except Exception as e:
+            logger.warning(f"Could not fetch role from database: {e}, using JWT role: {jwt_role}")
+
         # Create a user-like object with the decoded information
         current_user = {
             "user_id": user_id,
             "email": email, 
-            "role": role,
+            "role": current_role,
             "payload": payload
         }
 
-        logger.info(f"User {user_id} authenticated via JWT role: {role}")
+        logger.info(f"User {user_id} authenticated with role: {current_role}")
         
         # Set current user in request state for RBAC
         request.state.current_user = current_user
