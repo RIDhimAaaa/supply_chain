@@ -51,3 +51,29 @@ class ProductDashboardView(BaseModel):
 
     class Config:
         from_attributes = True
+
+class SupplierOrderItem(BaseModel):
+    """Represents an order item that a supplier needs to fulfill."""
+    id: uuid.UUID
+    product_id: uuid.UUID
+    product_name: str
+    quantity: int
+    final_price: float
+    vendor_name: str
+    vendor_phone: str | None = None
+    finalized_at: str | None = None
+
+    class Config:
+        from_attributes = True
+
+class SupplierOrderSummary(BaseModel):
+    """Summary of orders by product for a supplier."""
+    product_id: uuid.UUID
+    product_name: str
+    unit: str
+    total_quantity: int
+    total_orders: int
+    estimated_revenue: float
+
+    class Config:
+        from_attributes = True

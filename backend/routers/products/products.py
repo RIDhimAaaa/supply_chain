@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 import uuid
 from typing import List
@@ -10,7 +10,7 @@ from dependencies.rbac import require_permission
 from dependencies.get_current_user import get_current_user
 from config import get_db
 from models import Product as ProductModel, Deal, CartItem
-from .schemas import ProductCreate, Product as ProductSchema, ProductUpdate, ProductDetail, ProductDashboardView
+from .schemas import ProductCreate, Product as ProductSchema, ProductUpdate, ProductDetail, ProductDashboardView, SupplierOrderItem, SupplierOrderSummary
 
 products_router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -230,3 +230,100 @@ async def get_supplier_dashboard(
         })
 
     return dashboard_data
+
+
+@products_router.get(
+    "/me/orders/pending",
+    response_model=List[SupplierOrderSummary],
+    dependencies=[Depends(require_permission(resource="products", permission="read"))]
+)
+async def get_supplier_pending_orders(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for a supplier to see summary of all finalized orders they need to fulfill.
+    Shows aggregated quantities by product.
+    """
+    supplier_id = uuid.UUID(current_user.get("user_id"))
+
+    # Get all finalized cart items for this supplier's products
+    query = select(CartItem).options(
+        selectinload(CartItem.product)
+    ).join(
+        ProductModel, CartItem.product_id == ProductModel.id
+    ).where(
+        ProductModel.supplier_id == supplier_id,
+        CartItem.is_finalized == True
+    )
+
+    result = await db.execute(query)
+    cart_items = result.scalars().all()
+
+    # Aggregate the data manually
+    product_summaries = defaultdict(lambda: {
+        'product_id': None,
+        'product_name': '',
+        'unit': '',
+        'total_quantity': 0,
+        'total_orders': 0,
+        'estimated_revenue': 0.0
+    })
+
+    for item in cart_items:
+        product_id = item.product_id
+        if product_summaries[product_id]['product_id'] is None:
+            product_summaries[product_id]['product_id'] = product_id
+            product_summaries[product_id]['product_name'] = item.product.name
+            product_summaries[product_id]['unit'] = item.product.unit
+        
+        product_summaries[product_id]['total_quantity'] += item.quantity
+        product_summaries[product_id]['total_orders'] += 1
+        product_summaries[product_id]['estimated_revenue'] += float(item.final_price or 0) * item.quantity
+
+    return list(product_summaries.values())
+
+
+@products_router.get(
+    "/me/orders/details",
+    response_model=List[SupplierOrderItem],
+    dependencies=[Depends(require_permission(resource="products", permission="read"))]
+)
+async def get_supplier_order_details(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for a supplier to see detailed list of all individual orders they need to fulfill.
+    Shows each cart item with vendor information.
+    """
+    supplier_id = uuid.UUID(current_user.get("user_id"))
+
+    # Get all finalized cart items for this supplier's products with vendor details
+    query = select(CartItem).options(
+        selectinload(CartItem.product),
+        selectinload(CartItem.vendor)
+    ).join(
+        ProductModel, CartItem.product_id == ProductModel.id
+    ).where(
+        ProductModel.supplier_id == supplier_id,
+        CartItem.is_finalized == True
+    ).order_by(CartItem.finalized_at.desc())
+
+    result = await db.execute(query)
+    cart_items = result.scalars().all()
+
+    order_details = []
+    for item in cart_items:
+        order_details.append({
+            "id": item.id,
+            "product_id": item.product_id,
+            "product_name": item.product.name,
+            "quantity": item.quantity,
+            "final_price": float(item.final_price) if item.final_price else 0.0,
+            "vendor_name": item.vendor.full_name if item.vendor else "Unknown",
+            "vendor_phone": item.vendor.phone if item.vendor else None,
+            "finalized_at": item.finalized_at.isoformat() if item.finalized_at else None
+        })
+
+    return order_details
