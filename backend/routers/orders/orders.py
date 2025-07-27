@@ -81,30 +81,73 @@ async def get_my_latest_order_status(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Endpoint for a vendor to track their most recent finalized order."""
-    vendor_id = current_user.get("user_id")
+    """
+    Endpoint for a vendor to track their most recent finalized order
+    with a detailed, point-to-point status.
+    """
+    vendor_id_str = current_user.get("user_id")
+    vendor_id = uuid.UUID(vendor_id_str)
 
-    # Find the delivery stop for this vendor on today's route
+    # Find the vendor's delivery stop on today's route
     stop_query = select(RouteStop).join(DeliveryRoute).where(
-        RouteStop.profile_id == uuid.UUID(vendor_id),
+        RouteStop.profile_id == vendor_id,
         RouteStop.stop_type == 'delivery',
         DeliveryRoute.route_date == date.today()
     )
     delivery_stop = (await db.execute(stop_query)).scalar_one_or_none()
 
+    # Case 1: No route has been generated for the vendor yet.
     if not delivery_stop:
-        return {"status": "Order Placed", "details": "Awaiting finalization and routing after 11:30 PM."}
+        # Check if they have a finalized order to give a more accurate message.
+        finalized_item_query = select(CartItem.id).where(
+            CartItem.vendor_id == vendor_id,
+            CartItem.is_finalized == True
+        ).limit(1)
+        has_finalized_order = (await db.execute(finalized_item_query)).scalar_one_or_none()
+        
+        if has_finalized_order:
+            return {"status": "Order Finalized", "details": "Your order is being prepared for dispatch."}
+        else:
+            return {"status": "Order Placed", "details": "Awaiting finalization after 11:30 PM."}
 
+    # Case 2: The vendor's own delivery is already marked as complete.
     if delivery_stop.status == 'completed':
-        return {"status": "Delivered", "details": "Your order has been delivered."}
+        return {"status": "Delivered", "details": "Your order has been successfully delivered."}
 
-    # If the stop exists, get the full route to check progress
-    route_query = select(DeliveryRoute).options(selectinload(DeliveryRoute.stops)).where(DeliveryRoute.id == delivery_stop.route_id)
+    # Case 3: The route exists. Let's find the agent's current position.
+    # Get the full route with all stops and the profile info for each stop (supplier/vendor name).
+    route_query = select(DeliveryRoute).options(
+        selectinload(DeliveryRoute.stops).selectinload(RouteStop.profile)
+    ).where(DeliveryRoute.id == delivery_stop.route_id)
     route = (await db.execute(route_query)).scalar_one()
+
+    # Find the first stop in the sequence that is still 'pending'. This is the agent's current task.
+    current_active_stop = None
+    for stop in sorted(route.stops, key=lambda s: s.sequence_order):
+        if stop.status == 'pending':
+            current_active_stop = stop
+            break
     
-    completed_stops_count = sum(1 for s in route.stops if s.status == 'completed')
+    if not current_active_stop:
+         return {"status": "Finalizing Delivery", "details": "The agent is completing the last steps of their route."}
+
+    # Now, build the detailed status message based on the agent's current active stop.
+    if current_active_stop.stop_type == 'pickup':
+        return {
+            "status": "Agent is Collecting Goods",
+            "details": f"Currently at {current_active_stop.profile.full_name} (Stop {current_active_stop.sequence_order}/{len(route.stops)})"
+        }
     
-    if completed_stops_count < delivery_stop.sequence_order:
-         return {"status": "In Progress", "details": f"Agent is on their route. You are stop #{delivery_stop.sequence_order}. {completed_stops_count} of {len(route.stops)} stops completed."}
-    
-    return {"status": "Out for Delivery", "details": "The agent should be arriving shortly!"}
+    # If the active stop is a delivery...
+    if current_active_stop.id == delivery_stop.id:
+        # The active stop is the vendor's own.
+        return {
+            "status": "Out for Delivery",
+            "details": "The agent is on their way to you now!"
+        }
+    else:
+        # The agent is delivering to another vendor before this one.
+        return {
+            "status": "Making Other Deliveries",
+            "details": f"Agent is currently at {current_active_stop.profile.full_name}. You are stop #{delivery_stop.sequence_order}."
+        }

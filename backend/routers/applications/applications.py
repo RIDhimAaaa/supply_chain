@@ -140,12 +140,13 @@ async def get_my_applications(
 
 @applications_router.get(
     "/",
-    response_model=List[ApplicationSchema],
-    dependencies=[Depends(require_permission(resource="applications", permission="read"))]
+    response_model=List[ApplicationSchema]
 )
 async def list_all_applications(
     status: str | None = None, # Optional query parameter to filter by status
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    _rbac_check = Depends(require_permission(resource="applications", permission="read"))
 ):
     """
     Endpoint for an admin to fetch all applications.
@@ -164,13 +165,14 @@ async def list_all_applications(
 
 @applications_router.put(
     "/{application_id}",
-    response_model=ApplicationSchema,
-    dependencies=[Depends(require_permission(resource="applications", permission="write"))]
+    response_model=ApplicationSchema
 )
 async def review_application(
     application_id: uuid.UUID,
     update_data: ApplicationAdminUpdate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    _rbac_check = Depends(require_permission(resource="applications", permission="write"))
 ):
     """Endpoint for an admin to approve or reject an application."""
     # Get the application from the database

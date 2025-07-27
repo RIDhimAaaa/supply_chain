@@ -126,15 +126,17 @@ def require_permission(resource: str = None, permission: str = None):
         resource: Specific resource name (auto-detected if not provided)
         permission: Specific permission (auto-detected if not provided)
     """
-    def check_rbac(request: Request):
+    async def check_rbac(request: Request):
         """RBAC dependency function"""
         # Import here to avoid circular imports
         from dependencies.get_current_user import get_current_user
         
         try:
-            # Get current user from request state (should be set by middleware or route dependency)
+            # First, get current user from request state or authenticate
             current_user = getattr(request.state, 'current_user', None)
             if not current_user:
+                # If not in request state, we need to authenticate first
+                # This happens when RBAC dependency is used without get_current_user dependency
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Authentication required"
