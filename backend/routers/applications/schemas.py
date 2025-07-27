@@ -2,10 +2,16 @@ from pydantic import BaseModel, Field
 import uuid
 from datetime import datetime
 
+class DocumentUploadResponse(BaseModel):
+    """Schema for document upload response."""
+    message: str
+    document_url: str
+    filename: str
+
 class ApplicationCreate(BaseModel):
     """Schema for a user submitting an application."""
     requested_role_name: str = Field(..., description="The name of the role being requested, e.g., 'supplier' or 'agent'.")
-    document_url: str | None = Field(None, description="URL to the uploaded proof document in Supabase Storage.")
+    document_url: str = Field(..., description="URL to the uploaded proof document in Supabase Storage. Use /upload-document endpoint first.")
 
 class ApplicationAdminUpdate(BaseModel):
     """Schema for an admin to update the status of an application."""
