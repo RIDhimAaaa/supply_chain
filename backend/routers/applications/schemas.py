@@ -7,6 +7,7 @@ class DocumentUploadResponse(BaseModel):
     message: str
     document_url: str
     filename: str
+    status_code: str
 
 class ApplicationCreate(BaseModel):
     """Schema for a user submitting an application."""
