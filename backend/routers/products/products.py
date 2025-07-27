@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, select
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from dependencies.rbac import require_permission
