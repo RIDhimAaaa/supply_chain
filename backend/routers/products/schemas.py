@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 import uuid
+from ..deals.schemas import Deal as DealSchema 
+from typing import List
 
 class ProductBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -27,3 +29,8 @@ class ProductUpdate(BaseModel):
     base_price: float | None = None
     img_emoji: str | None = None
     is_available: bool | None = None
+
+
+class ProductDetail(Product):
+    """Extends the Product schema to include its list of deals."""
+    deals: List[DealSchema] = []

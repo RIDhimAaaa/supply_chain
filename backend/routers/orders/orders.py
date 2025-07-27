@@ -5,6 +5,8 @@ from sqlalchemy.orm import selectinload
 import uuid
 from collections import defaultdict
 from datetime import date
+from typing import List
+from ..cart.schemas import CartItem as CartItemSchema
 
 from dependencies.rbac import require_permission
 from dependencies.get_current_user import get_current_user
@@ -46,6 +48,30 @@ async def finalize_and_create_routes(db: AsyncSession = Depends(get_db)):
         
         item.final_price = float(item.product.base_price) * (1 - best_discount)
         item.is_finalized = True
+
+    # --- NEW Part 1.5: Deduct Payments from Wallets ---
+    vendor_totals = defaultdict(float)
+    for item in all_items:
+        vendor_totals[item.vendor_id] += float(item.final_price) * item.quantity
+
+    # Fetch all relevant vendor profiles at once
+    vendor_ids = list(vendor_totals.keys())
+    profiles_query = select(Profile).where(Profile.id.in_(vendor_ids))
+    vendor_profiles = (await db.execute(profiles_query)).scalars().all()
+    
+    profile_map = {p.id: p for p in vendor_profiles}
+
+    for vendor_id, total_cost in vendor_totals.items():
+        if vendor_id in profile_map:
+            vendor_profile = profile_map[vendor_id]
+            if vendor_profile.wallet_balance >= total_cost:
+                vendor_profile.wallet_balance -= total_cost
+            else:
+                # In a real app, you'd handle this failure (e.g., cancel order, notify)
+                # For the hackathon, we can log it and proceed.
+                print(f"WARNING: Vendor {vendor_id} has insufficient funds!")
+        else:
+            print(f"ERROR: Could not find profile for vendor {vendor_id} to deduct payment.")
 
     # --- Part 2: Generate Route (The "Logistics Engine") ---
     agent_query = select(Profile).join(Role).where(Role.name == 'agent')
@@ -151,3 +177,31 @@ async def get_my_latest_order_status(
             "status": "Making Other Deliveries",
             "details": f"Agent is currently at {current_active_stop.profile.full_name}. You are stop #{delivery_stop.sequence_order}."
         }
+
+
+@orders_router.get(
+    "/me/history",
+    response_model=List[CartItemSchema],
+    dependencies=[Depends(require_permission(resource="orders", permission="read"))]
+)
+async def get_my_order_history(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for a vendor to see a list of all their past, finalized order items.
+    """
+    vendor_id = uuid.UUID(current_user.get("user_id"))
+
+    query = select(CartItem).options(
+        selectinload(CartItem.product) # Load the product details for each item
+    ).where(
+        CartItem.vendor_id == vendor_id,
+        CartItem.is_finalized == True
+    ).order_by(CartItem.finalized_at.desc()) # Show most recent orders first
+
+    result = await db.execute(query)
+    order_history = result.scalars().all()
+
+    return order_history
+

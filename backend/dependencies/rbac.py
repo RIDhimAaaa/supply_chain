@@ -25,6 +25,7 @@ RESOURCES_FOR_ROLES = {
         'deals': ['read', 'write', 'delete'],    # Suppliers can manage deals
         'users/me': ['read', 'write'],           # Suppliers can manage their own profile
         'applications': ['read', 'write'],       # Suppliers can view their own applications
+        'wallet': ['read', 'write'],             # Suppliers can manage their wallet
     },
      'vendor': {
         'products': ['read'],                    # Vendors can view products
@@ -33,6 +34,7 @@ RESOURCES_FOR_ROLES = {
         'orders': ['read'],                      # Vendors can view their finalized orders
         'users/me': ['read', 'write'],           # Vendors can manage their own profile
         'applications': ['read', 'write'],       # Vendors can view their own applications
+        'wallet': ['read', 'write'],             # Vendors can manage their wallet
     },
     'agent': {
         'manifests': ['read'],                   # Agents can view pickup manifests
@@ -40,12 +42,14 @@ RESOURCES_FOR_ROLES = {
         'orders': ['write'],                     # Agents can update order status (e.g., 'delivered')
         'users/me': ['read', 'write'],           # Agents can manage their own profile
         'applications': ['read', 'write'],       # Agents can view their own applications
+        'wallet': ['read', 'write'],             # Agents can manage their wallet
     },
     'user': {
         'users/me': ['read', 'write'], 
         'users/profiles': ['read'], 
         'content': ['read', 'write'],
         'applications': ['read', 'write'],       # Users can submit and view their own applications
+        'wallet': ['read', 'write'],             # Users can manage their wallet
     }
 }
 
@@ -88,6 +92,9 @@ def normalize_path(path: str) -> str:
     
     elif segments[0] == 'applications':
         return 'applications'
+    
+    elif segments[0] == 'wallet':
+        return 'wallet'
     
     return segments[0]
 

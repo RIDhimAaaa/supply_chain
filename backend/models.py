@@ -23,6 +23,7 @@ class Profile(Base):
     phone = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)
     location = Column(Geography(geometry_type='POINT', srid=4326), nullable=True)
+    wallet_balance = Column(Numeric(10, 2), default=0.0, nullable=True)  # Wallet balance for payments
     is_active = Column(Boolean, default=True, nullable=False)
     is_approved = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

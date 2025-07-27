@@ -5,6 +5,7 @@ from routers.users import users_router
 from routers.admin.admin import router as admin_router
 from routers.products.products import products_router 
 from routers.cart.cart import cart_router
+from routers.wallet.wallet import wallet_router
 from routers.applications.applications import applications_router
 from routers.orders.orders import orders_router
 from routers.agents_routes.routes import agents_routes_router
@@ -30,6 +31,7 @@ app.include_router(users_router)
 app.include_router(admin_router)
 app.include_router(products_router)
 app.include_router(cart_router)
+app.include_router(wallet_router)
 app.include_router(applications_router)
 app.include_router(orders_router)
 app.include_router(agents_routes_router)
