@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Factory, Package, Search, Truck } from "lucide-react"
+import { Factory, Package, Search, Truck, Loader2, ArrowRight } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { AuroraBackground } from "@/components/ui/aurora-background"
 import { GlowCard } from "../../components/ui/spotlight-card"
+import { profileApi, onboardingManager, ApiError } from "@/lib/api"
+import { useToast } from "@/hooks/use-toast"
 
 const translations = {
   english: {
@@ -56,22 +58,75 @@ const translations = {
 export default function ProfileSelection() {
   const [language, setLanguage] = useState("english")
   const [selectedProfile, setSelectedProfile] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const { toast } = useToast()
 
   useEffect(() => {
     const savedLanguage = localStorage.getItem("selectedLanguage") || "english"
     setLanguage(savedLanguage)
-  }, [])
 
-  const handleProfileSelect = (profileType: string) => {
+    // Check if user should be on this page
+    if (!onboardingManager.isProfileSelectionPending()) {
+      // If onboarding is complete, redirect to dashboard
+      if (onboardingManager.isOnboardingComplete()) {
+        router.push("/")
+        return
+      }
+      // If no signup in progress, allow access (could be standalone profile selection)
+    }
+  }, [router])
+
+  const handleProfileSelect = async (profileType: string) => {
     setSelectedProfile(profileType)
-    // Store profile type in localStorage
-    localStorage.setItem("userProfile", profileType)
+    setIsLoading(true)
 
-    // Navigate to dashboard based on profile type
-    setTimeout(() => {
-      router.push(`/dashboard/${profileType}`)
-    }, 1000)
+    try {
+      // Call the profile API to save the selection
+      const response = await profileApi.selectProfile({
+        profile_type: profileType
+      })
+
+      // Mark profile selection as complete in onboarding
+      onboardingManager.markProfileSelectionComplete(response.profile)
+
+      // Store profile type in localStorage for backward compatibility
+      localStorage.setItem("userProfile", profileType)
+
+      toast({
+        title: "Profile Set Successfully!",
+        description: `Welcome! Your ${profileType} profile is ready.`,
+      })
+
+      // Navigate to dashboard based on profile type
+      setTimeout(() => {
+        router.push(`/dashboard/${profileType}`)
+      }, 1000)
+
+    } catch (error: any) {
+      console.error("Profile selection error:", error)
+
+      let errorTitle = "Profile Selection Failed"
+      let errorDescription = "Unable to set your profile. Please try again."
+
+      if (error instanceof ApiError) {
+        if (error.status === 0) {
+          errorDescription = "Connection error. Please check your internet and try again."
+        } else {
+          errorDescription = error.message || "Server error occurred. Please try again."
+        }
+      }
+
+      toast({
+        title: errorTitle,
+        description: errorDescription,
+        variant: "destructive",
+      })
+
+      setSelectedProfile(null)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const t = translations[language as keyof typeof translations] || translations.english
@@ -128,13 +183,19 @@ export default function ProfileSelection() {
 
                 <div className="mt-4 pt-4">
                   <Button
-                    className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm lg:text-base py-2 lg:py-3"
+                    className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm lg:text-base py-2 lg:py-3 disabled:opacity-50"
+                    disabled={isLoading}
                     onClick={(e) => {
                       e.stopPropagation()
                       handleProfileSelect("supplier")
                     }}
                   >
-                    {selectedProfile === "supplier" ? "Selected!" : t.getStarted}
+                    {isLoading && selectedProfile === "supplier" ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Setting up...
+                      </>
+                    ) : selectedProfile === "supplier" ? "Selected!" : t.getStarted}
                   </Button>
                 </div>
               </div>
@@ -167,13 +228,19 @@ export default function ProfileSelection() {
 
                 <div className="mt-4 pt-4">
                   <Button
-                    className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm lg:text-base py-2 lg:py-3"
+                    className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm lg:text-base py-2 lg:py-3 disabled:opacity-50"
+                    disabled={isLoading}
                     onClick={(e) => {
                       e.stopPropagation()
                       handleProfileSelect("vendor")
                     }}
                   >
-                    {selectedProfile === "vendor" ? "Selected!" : t.getStarted}
+                    {isLoading && selectedProfile === "vendor" ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Setting up...
+                      </>
+                    ) : selectedProfile === "vendor" ? "Selected!" : t.getStarted}
                   </Button>
                 </div>
               </div>
@@ -206,13 +273,19 @@ export default function ProfileSelection() {
 
                 <div className="mt-4 pt-4">
                   <Button
-                    className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm lg:text-base py-2 lg:py-3"
+                    className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm lg:text-base py-2 lg:py-3 disabled:opacity-50"
+                    disabled={isLoading}
                     onClick={(e) => {
                       e.stopPropagation()
                       handleProfileSelect("delivery")
                     }}
                   >
-                    {selectedProfile === "delivery" ? "Selected!" : t.getStarted}
+                    {isLoading && selectedProfile === "delivery" ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Setting up...
+                      </>
+                    ) : selectedProfile === "delivery" ? "Selected!" : t.getStarted}
                   </Button>
                 </div>
               </div>
