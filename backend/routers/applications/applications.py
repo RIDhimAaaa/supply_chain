@@ -141,7 +141,7 @@ async def get_my_applications(
 @applications_router.get(
     "/",
     response_model=List[ApplicationSchema],
-    dependencies=[Depends(require_permission(resource="admin", permission="read"))]
+    dependencies=[Depends(require_permission(resource="applications", permission="read"))]
 )
 async def list_all_applications(
     status: str | None = None, # Optional query parameter to filter by status
@@ -165,7 +165,7 @@ async def list_all_applications(
 @applications_router.put(
     "/{application_id}",
     response_model=ApplicationSchema,
-    dependencies=[Depends(require_permission(resource="admin", permission="write"))]
+    dependencies=[Depends(require_permission(resource="applications", permission="write"))]
 )
 async def review_application(
     application_id: uuid.UUID,

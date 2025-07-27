@@ -17,12 +17,14 @@ RESOURCES_FOR_ROLES = {
         'analytics': ['read'],  
         'settings': ['read', 'write'], 
         'content': ['read', 'write', 'delete'],  
-        'reports': ['read', 'write'],  
+        'reports': ['read', 'write'],
+        'applications': ['read', 'write', 'delete'],  # Admin can manage all applications
     },
     'supplier': {
         'products': ['read', 'write', 'delete'], # Suppliers can manage products
         'deals': ['read', 'write', 'delete'],    # Suppliers can manage deals
         'users/me': ['read', 'write'],           # Suppliers can manage their own profile
+        'applications': ['read', 'write'],       # Suppliers can view their own applications
     },
      'vendor': {
         'products': ['read'],                    # Vendors can view products
@@ -30,17 +32,20 @@ RESOURCES_FOR_ROLES = {
         'cart': ['read', 'write', 'delete'],     # Vendors can manage their cart
         'orders': ['read'],                      # Vendors can view their finalized orders
         'users/me': ['read', 'write'],           # Vendors can manage their own profile
+        'applications': ['read', 'write'],       # Vendors can view their own applications
     },
     'agent': {
         'manifests': ['read'],                   # Agents can view pickup manifests
         'routes': ['read'],                      # Agents can view delivery routes
         'orders': ['write'],                     # Agents can update order status (e.g., 'delivered')
         'users/me': ['read', 'write'],           # Agents can manage their own profile
+        'applications': ['read', 'write'],       # Agents can view their own applications
     },
     'user': {
         'users/me': ['read', 'write'], 
         'users/profiles': ['read'], 
-        'content': ['read', 'write'],  
+        'content': ['read', 'write'],
+        'applications': ['read', 'write'],       # Users can submit and view their own applications
     }
 }
 
@@ -80,6 +85,9 @@ def normalize_path(path: str) -> str:
     
     elif segments[0] == 'reports':
         return 'reports'
+    
+    elif segments[0] == 'applications':
+        return 'applications'
     
     return segments[0]
 
@@ -182,3 +190,7 @@ require_content_delete = require_permission("content", "delete")
 
 require_reports = require_permission("reports", "read")
 require_reports_write = require_permission("reports", "write")
+
+require_applications_read = require_permission("applications", "read")
+require_applications_write = require_permission("applications", "write")
+require_applications_delete = require_permission("applications", "delete")
