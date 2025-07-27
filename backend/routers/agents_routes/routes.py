@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from models import DeliveryRoute, RouteStop, CartItem, Product
 import uuid
 from datetime import date
 from typing import List
@@ -12,7 +13,7 @@ from config import get_db
 from models import DeliveryRoute, RouteStop
 from .schemas import RouteSchema # Import schemas from this folder
 
-# Note the router name matches your folder structure
+
 agents_routes_router = APIRouter(prefix="/agent-routes", tags=["Agent Delivery Routes"])
 
 @agents_routes_router.get("/me/today", response_model=RouteSchema)
@@ -81,3 +82,55 @@ async def complete_a_stop(
     await db.commit()
 
     return {"message": "Stop marked as complete."}
+
+# In routers/agents_routes/routes.py
+
+# ... (keep all your existing code)
+
+@agents_routes_router.get("/stops/{stop_id}/manifest")
+async def get_stop_manifest(
+    stop_id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for an agent to get the detailed checklist for a specific stop.
+    For a 'pickup' stop, it lists all items to collect from the supplier.
+    For a 'delivery' stop, it lists all items to drop off to the vendor.
+    """
+    # First, verify the agent is assigned to this stop
+    stop_query = select(RouteStop).join(DeliveryRoute).where(
+        RouteStop.id == stop_id,
+        DeliveryRoute.agent_id == uuid.UUID(current_user.get("user_id"))
+    )
+    stop = (await db.execute(stop_query)).scalar_one_or_none()
+    if not stop:
+        raise HTTPException(status_code=404, detail="Stop not found or not part of your route.")
+
+    # Now, find all the finalized cart items related to this stop's profile (supplier or vendor)
+    if stop.stop_type == 'pickup':
+        # Find all items supplied by this profile on today's route
+        manifest_query = select(CartItem).join(Product).where(
+            Product.supplier_id == stop.profile_id,
+            CartItem.is_finalized == True,
+            # This date check is important to only get today's orders
+            select(DeliveryRoute.route_date).where(DeliveryRoute.id == stop.route_id).as_scalar() == date.today()
+        )
+    else: # stop_type == 'delivery'
+        # Find all items for this vendor on today's route
+        manifest_query = select(CartItem).where(
+            CartItem.vendor_id == stop.profile_id,
+            CartItem.is_finalized == True,
+            select(DeliveryRoute.route_date).where(DeliveryRoute.id == stop.route_id).as_scalar() == date.today()
+        )
+    
+    items_result = await db.execute(manifest_query.options(selectinload(CartItem.product)))
+    items = items_result.scalars().all()
+
+    # Format the response
+    manifest = [
+        {"product_name": item.product.name, "quantity": item.quantity, "unit": item.product.unit}
+        for item in items
+    ]
+    
+    return manifest
