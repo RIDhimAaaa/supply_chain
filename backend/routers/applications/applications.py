@@ -58,20 +58,23 @@ async def upload_application_document(
             file_options={"content-type": file.content_type}
         )
         
-        if response.status_code != 200:
+        # Check if upload was successful - Supabase returns an object with path if successful
+        if hasattr(response, 'path') and response.path:
+            # Get the public URL
+            public_url = supabase.storage.from_(bucket_id).get_public_url(f"documents/{unique_filename}")
+            
+            return {
+                "message": "Document uploaded successfully",
+                "document_url": public_url,
+                "filename": unique_filename
+            }
+        else:
+            # Handle upload error
+            error_message = getattr(response, 'message', 'Unknown upload error')
             raise HTTPException(
                 status_code=500,
-                detail="Failed to upload document to storage"
+                detail=f"Failed to upload document: {error_message}"
             )
-        
-        # Get the public URL
-        public_url = supabase.storage.from_(bucket_id).get_public_url(f"documents/{unique_filename}")
-        
-        return {
-            "message": "Document uploaded successfully",
-            "document_url": public_url,
-            "filename": unique_filename
-        }
         
     except Exception as e:
         raise HTTPException(

@@ -7,8 +7,7 @@ class DocumentUploadResponse(BaseModel):
     message: str
     document_url: str
     filename: str
-    status_code: str
-
+    
 class ApplicationCreate(BaseModel):
     """Schema for a user submitting an application."""
     requested_role_name: str = Field(..., description="The name of the role being requested, e.g., 'supplier' or 'agent'.")
