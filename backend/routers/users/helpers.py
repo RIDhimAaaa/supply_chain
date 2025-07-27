@@ -254,7 +254,7 @@ async def upload_image_to_storage(
         logger.info(f"Attempting to upload file: {filename}")
         
         # Upload to Supabase storage
-        response = supabase.storage.from_("profile-images").upload(
+        response = supabase.storage.from_("application-proof").upload(
             path=filename,
             file=file_content,
             file_options={"content-type": content_type}
