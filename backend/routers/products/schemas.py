@@ -77,3 +77,12 @@ class SupplierOrderSummary(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OrderStatusUpdate(BaseModel):
+    """Schema for updating order preparation status."""
+    status: str
+    notes: str | None = None
+
+    class Config:
+        from_attributes = True

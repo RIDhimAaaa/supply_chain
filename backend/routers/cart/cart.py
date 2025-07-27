@@ -89,6 +89,56 @@ async def get_my_cart(
         "estimated_total": estimated_total
     }
 
+@cart_router.get(
+    "/me/affordability-check",
+    dependencies=[Depends(require_permission(resource="cart", permission="read"))]
+)
+async def check_cart_affordability(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for a vendor to check if they can afford their current cart.
+    Returns wallet balance, estimated cost, and affordability status.
+    """
+    from models import Profile
+    
+    vendor_id = uuid.UUID(current_user.get("user_id"))
+
+    # Get vendor's current wallet balance
+    profile_query = select(Profile).where(Profile.id == vendor_id)
+    vendor_profile = (await db.execute(profile_query)).scalar_one_or_none()
+    
+    if not vendor_profile:
+        raise HTTPException(status_code=404, detail="Vendor profile not found.")
+
+    # Get current cart items and calculate estimated total
+    cart_query = select(CartItemModel).options(
+        selectinload(CartItemModel.product)
+    ).where(
+        CartItemModel.vendor_id == vendor_id,
+        CartItemModel.is_finalized == False
+    )
+    
+    cart_items = (await db.execute(cart_query)).scalars().all()
+    
+    estimated_total = 0.0
+    for item in cart_items:
+        if item.product and item.product.base_price:
+            estimated_total += item.quantity * float(item.product.base_price)
+
+    wallet_balance = float(vendor_profile.wallet_balance or 0)
+    can_afford = wallet_balance >= estimated_total
+    shortfall = max(0, estimated_total - wallet_balance)
+
+    return {
+        "wallet_balance": wallet_balance,
+        "estimated_total": estimated_total,
+        "can_afford": can_afford,
+        "shortfall": shortfall,
+        "message": "You can afford this cart!" if can_afford else f"You need ₹{shortfall:.2f} more in your wallet."
+    }
+
 @cart_router.put(
     "/items/{item_id}",
     response_model=CartItemSchema,

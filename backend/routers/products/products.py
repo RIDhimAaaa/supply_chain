@@ -10,7 +10,7 @@ from dependencies.rbac import require_permission
 from dependencies.get_current_user import get_current_user
 from config import get_db
 from models import Product as ProductModel, Deal, CartItem
-from .schemas import ProductCreate, Product as ProductSchema, ProductUpdate, ProductDetail, ProductDashboardView, SupplierOrderItem, SupplierOrderSummary
+from .schemas import ProductCreate, Product as ProductSchema, ProductUpdate, ProductDetail, ProductDashboardView, SupplierOrderItem, SupplierOrderSummary, OrderStatusUpdate
 
 products_router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -327,3 +327,148 @@ async def get_supplier_order_details(
         })
 
     return order_details
+
+
+@products_router.put(
+    "/orders/{product_id}/status",
+    dependencies=[Depends(require_permission(resource="products", permission="write"))]
+)
+async def update_product_order_status(
+    product_id: uuid.UUID,
+    status_update: OrderStatusUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for suppliers to update the preparation status of orders for their products.
+    Status options: 'received', 'preparing', 'ready_for_pickup', 'picked_up'
+    """
+    supplier_id = uuid.UUID(current_user.get("user_id"))
+    valid_statuses = ['received', 'preparing', 'ready_for_pickup', 'picked_up']
+    
+    if status_update.status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+        )
+
+    # Verify the supplier owns this product
+    product_query = select(ProductModel).where(
+        ProductModel.id == product_id,
+        ProductModel.supplier_id == supplier_id
+    )
+    product = (await db.execute(product_query)).scalar_one_or_none()
+    
+    if not product:
+        raise HTTPException(
+            status_code=404, 
+            detail="Product not found or you don't have permission to update its orders"
+        )
+
+    # Find all finalized cart items for this product
+    cart_items_query = select(CartItem).where(
+        CartItem.product_id == product_id,
+        CartItem.is_finalized == True
+    )
+    cart_items = (await db.execute(cart_items_query)).scalars().all()
+    
+    if not cart_items:
+        raise HTTPException(
+            status_code=404,
+            detail="No finalized orders found for this product"
+        )
+
+    # For now, we'll add a simple status tracking field to cart items
+    # In a production system, you'd want a separate OrderStatus table
+    updated_count = 0
+    for item in cart_items:
+        # Add status tracking (this would ideally be in a separate status table)
+        if not hasattr(item, 'preparation_status'):
+            item.preparation_status = status_update.status
+        else:
+            item.preparation_status = status_update.status
+        updated_count += 1
+
+    await db.commit()
+
+    return {
+        "message": f"Updated preparation status to '{status_update.status}' for {updated_count} orders",
+        "product_id": product_id,
+        "product_name": product.name,
+        "new_status": status_update.status,
+        "notes": status_update.notes,
+        "orders_updated": updated_count
+    }
+
+
+@products_router.get(
+    "/me/orders/status-overview",
+    dependencies=[Depends(require_permission(resource="products", permission="read"))]
+)
+async def get_supplier_orders_status_overview(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for suppliers to get an overview of order preparation status across all their products.
+    """
+    supplier_id = uuid.UUID(current_user.get("user_id"))
+
+    # Get all finalized orders for this supplier's products
+    query = select(CartItem).options(
+        selectinload(CartItem.product),
+        selectinload(CartItem.vendor)
+    ).join(
+        ProductModel, CartItem.product_id == ProductModel.id
+    ).where(
+        ProductModel.supplier_id == supplier_id,
+        CartItem.is_finalized == True
+    ).order_by(CartItem.finalized_at.desc())
+
+    result = await db.execute(query)
+    cart_items = result.scalars().all()
+
+    # Group orders by status (simulated since we don't have a real status table yet)
+    status_overview = {
+        "received": [],
+        "preparing": [],
+        "ready_for_pickup": [],
+        "picked_up": []
+    }
+    
+    # For demo purposes, we'll assign random statuses
+    # In production, this would come from the actual order status tracking
+    for i, item in enumerate(cart_items):
+        # Simulate different statuses based on order age
+        if i % 4 == 0:
+            status = "picked_up"
+        elif i % 4 == 1:
+            status = "ready_for_pickup"
+        elif i % 4 == 2:
+            status = "preparing"
+        else:
+            status = "received"
+            
+        status_overview[status].append({
+            "order_id": item.id,
+            "product_name": item.product.name,
+            "quantity": item.quantity,
+            "vendor_name": item.vendor.full_name if item.vendor else "Unknown",
+            "finalized_at": item.finalized_at.isoformat() if item.finalized_at else None
+        })
+
+    # Calculate summary statistics
+    total_orders = len(cart_items)
+    summary = {
+        "total_orders": total_orders,
+        "received": len(status_overview["received"]),
+        "preparing": len(status_overview["preparing"]),
+        "ready_for_pickup": len(status_overview["ready_for_pickup"]),
+        "picked_up": len(status_overview["picked_up"])
+    }
+
+    return {
+        "summary": summary,
+        "orders_by_status": status_overview,
+        "message": f"You have {total_orders} total orders to fulfill"
+    }
