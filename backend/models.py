@@ -49,6 +49,7 @@ class Product(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     supplier = relationship("Profile")
+    deals = relationship("Deal", back_populates="product")
 
 class Deal(Base):
     __tablename__ = "deals"
@@ -61,7 +62,7 @@ class Deal(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    product = relationship("Product")
+    product = relationship("Product", back_populates="deals")
 
 class CartItem(Base):
     __tablename__ = "cart_items"
@@ -96,3 +97,35 @@ class Application(Base):
     # Relationships
     user = relationship("Profile")
     requested_role = relationship("Role")
+
+
+class DeliveryRoute(Base):
+    __tablename__ = "delivery_routes"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
+    route_date = Column(DateTime(timezone=True), server_default=func.now())
+    status = Column(String, default='assigned', nullable=False)  # assigned, in_progress, completed
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    agent = relationship("Profile")
+    stops = relationship("RouteStop", back_populates="route")
+
+
+class RouteStop(Base):
+    __tablename__ = "route_stops"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    route_id = Column(UUID(as_uuid=True), ForeignKey("delivery_routes.id"), nullable=False)
+    profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
+    stop_type = Column(String, nullable=False)  # 'pickup' or 'delivery'
+    sequence_order = Column(Integer, nullable=False)
+    status = Column(String, default='pending', nullable=False)  # pending, completed
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    route = relationship("DeliveryRoute", back_populates="stops")
+    profile = relationship("Profile")
