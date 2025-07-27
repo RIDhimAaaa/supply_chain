@@ -1,17 +1,86 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import uuid
 from typing import List
+import os
 
 # Import all the necessary tools
 from dependencies.rbac import require_permission
 from dependencies.get_current_user import get_current_user
-from config import get_db, supabase_admin
+from config import get_db, supabase_admin, supabase
 from models import Application as ApplicationModel, Role, Profile
-from .schemas import ApplicationCreate, Application as ApplicationSchema, ApplicationAdminUpdate
+from .schemas import ApplicationCreate, Application as ApplicationSchema, ApplicationAdminUpdate, DocumentUploadResponse
 
 applications_router = APIRouter(prefix="/applications", tags=["Applications"])
+
+@applications_router.post("/upload-document", response_model=DocumentUploadResponse)
+async def upload_application_document(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Endpoint for users to upload supporting documents for their role application.
+    Returns the URL of the uploaded document to be used in the application submission.
+    """
+    user_id = current_user.get("user_id")
+    
+    # Validate file type (allow common document formats)
+    allowed_extensions = {'.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx'}
+    file_extension = os.path.splitext(file.filename)[1].lower()
+    
+    if file_extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"File type {file_extension} not allowed. Allowed types: {', '.join(allowed_extensions)}"
+        )
+    
+    # Validate file size (limit to 5MB)
+    max_size = 5 * 1024 * 1024  # 5MB in bytes
+    file_content = await file.read()
+    
+    if len(file_content) > max_size:
+        raise HTTPException(
+            status_code=400,
+            detail="File size too large. Maximum size is 5MB."
+        )
+    
+    try:
+        # Generate unique filename to avoid conflicts
+        unique_filename = f"{user_id}_{uuid.uuid4()}{file_extension}"
+        
+        # Upload to Supabase Storage
+        bucket_id = os.getenv('bucket_id', 'application-proof')
+        
+        response = supabase.storage.from_(bucket_id).upload(
+            path=f"documents/{unique_filename}",
+            file=file_content,
+            file_options={"content-type": file.content_type}
+        )
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to upload document to storage"
+            )
+        
+        # Get the public URL
+        public_url = supabase.storage.from_(bucket_id).get_public_url(f"documents/{unique_filename}")
+        
+        return {
+            "message": "Document uploaded successfully",
+            "document_url": public_url,
+            "filename": unique_filename
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error uploading document: {str(e)}"
+        )
+    finally:
+        # Reset file position for potential reuse
+        await file.seek(0)
 
 @applications_router.post("/", response_model=ApplicationSchema, status_code=status.HTTP_201_CREATED)
 async def submit_application(
@@ -19,7 +88,15 @@ async def submit_application(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Endpoint for a user to apply for a new role (e.g., supplier, agent)."""
+    """
+    Endpoint for a user to apply for a new role (e.g., supplier, agent).
+    
+    **Workflow:**
+    1. First upload a supporting document using `/applications/upload-document`
+    2. Use the returned document_url in this endpoint to submit the application
+    3. Admin will review and approve/reject the application
+    4. Upon approval, user's role will be updated automatically
+    """
     user_id_str = current_user.get("user_id")
 
     # Find the ID of the role they are requesting
