@@ -4,15 +4,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 import uuid
 from typing import List
-from sqlalchemy.orm import selectinload
-from models import Deal
-from .schemas import ProductDetail
+from collections import defaultdict
 
 from dependencies.rbac import require_permission
 from dependencies.get_current_user import get_current_user
 from config import get_db
-from models import Product as ProductModel
-from .schemas import ProductCreate, Product as ProductSchema, ProductUpdate
+from models import Product as ProductModel, Deal, CartItem
+from .schemas import ProductCreate, Product as ProductSchema, ProductUpdate, ProductDetail, ProductDashboardView
 
 products_router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -173,3 +171,62 @@ async def get_product_details(
         
     return product
 
+
+@products_router.get(
+    "/me/dashboard",
+    response_model=List[ProductDashboardView],
+    dependencies=[Depends(require_permission(resource="products", permission="read"))]
+)
+async def get_supplier_dashboard(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for a supplier to see the real-time status of their products,
+    including current collective demand and deal progress.
+    """
+    supplier_id = uuid.UUID(current_user.get("user_id"))
+
+    # 1. Get all of the supplier's products with their deals
+    products_query = select(ProductModel).options(
+        selectinload(ProductModel.deals)
+    ).where(ProductModel.supplier_id == supplier_id)
+    
+    my_products = (await db.execute(products_query)).scalars().all()
+    product_ids = [p.id for p in my_products]
+
+    # 2. Calculate the current, non-finalized demand for all these products
+    demand_query = select(CartItem.product_id, CartItem.quantity).where(
+        CartItem.product_id.in_(product_ids),
+        CartItem.is_finalized == False
+    )
+    demand_results = (await db.execute(demand_query)).all()
+
+    # Use a defaultdict to easily sum up the demand
+    current_demand = defaultdict(int)
+    for product_id, quantity in demand_results:
+        current_demand[product_id] += quantity
+
+    # 3. Build the detailed response for the dashboard
+    dashboard_data = []
+    for product in my_products:
+        demand = current_demand[product.id]
+        
+        deals_status = []
+        if product.deals:
+            for deal in sorted(product.deals, key=lambda d: d.threshold):
+                deals_status.append({
+                    "threshold": deal.threshold,
+                    "discount": deal.discount,
+                    "is_unlocked": demand >= deal.threshold
+                })
+
+        dashboard_data.append({
+            "id": product.id,
+            "name": product.name,
+            "unit": product.unit,
+            "current_demand": demand,
+            "deals_status": deals_status
+        })
+
+    return dashboard_data

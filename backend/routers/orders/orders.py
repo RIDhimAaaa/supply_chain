@@ -7,25 +7,27 @@ from collections import defaultdict
 from datetime import date
 from typing import List
 from ..cart.schemas import CartItem as CartItemSchema
+from dependencies.security import verify_internal_secret
 
 from dependencies.rbac import require_permission
 from dependencies.get_current_user import get_current_user
 from config import get_db
 from models import CartItem, Product, Deal, Profile, Role, DeliveryRoute, RouteStop
 from .schemas import OrderStatus # Import the schema from this folder
+from utils.notifications import send_order_confirmation_sms # Import the new mock function
 
 orders_router = APIRouter(prefix="/orders", tags=["Orders & Tracking"])
 
 @orders_router.post(
     "/finalize-and-route",
-    dependencies=[Depends(require_permission(resource="admin", permission="write"))]
+    dependencies=[Depends(verify_internal_secret)]
 )
 async def finalize_and_create_routes(db: AsyncSession = Depends(get_db)):
     """
-    THE BRAIN: This admin-only endpoint runs after the order window closes.
+    THE BRAIN: This endpoint runs automatically via cron job.
     1. Finalizes all cart items with the best possible deal price.
-    2. Generates a simple, non-optimized pickup and delivery route.
-    3. Assigns the route to an available delivery agent.
+    2. Deducts payment from vendor wallets and sends notifications.
+    3. Generates and assigns the delivery route.
     """
     # --- Part 1: Finalize Deals (The "Deal Activation Engine") ---
     cart_query = select(CartItem).options(
@@ -49,7 +51,7 @@ async def finalize_and_create_routes(db: AsyncSession = Depends(get_db)):
         item.final_price = float(item.product.base_price) * (1 - best_discount)
         item.is_finalized = True
 
-    # --- NEW Part 1.5: Deduct Payments from Wallets ---
+    # --- Part 2: Deduct Payments & Send Notifications ---
     vendor_totals = defaultdict(float)
     for item in all_items:
         vendor_totals[item.vendor_id] += float(item.final_price) * item.quantity
@@ -66,6 +68,16 @@ async def finalize_and_create_routes(db: AsyncSession = Depends(get_db)):
             vendor_profile = profile_map[vendor_id]
             if vendor_profile.wallet_balance >= total_cost:
                 vendor_profile.wallet_balance -= total_cost
+                
+                # --- NEW LOGIC: Send SMS notification after successful payment ---
+                if vendor_profile.phone:
+                    await send_order_confirmation_sms(
+                        phone_number=vendor_profile.phone,
+                        final_cost=total_cost,
+                        vendor_name=vendor_profile.full_name
+                    )
+                # -----------------------------
+                
             else:
                 # In a real app, you'd handle this failure (e.g., cancel order, notify)
                 # For the hackathon, we can log it and proceed.
@@ -73,7 +85,7 @@ async def finalize_and_create_routes(db: AsyncSession = Depends(get_db)):
         else:
             print(f"ERROR: Could not find profile for vendor {vendor_id} to deduct payment.")
 
-    # --- Part 2: Generate Route (The "Logistics Engine") ---
+    # --- Part 3: Generate Route (The "Logistics Engine") ---
     agent_query = select(Profile).join(Role).where(Role.name == 'agent')
     agent = (await db.execute(agent_query)).scalars().first()
     if not agent:
@@ -99,7 +111,7 @@ async def finalize_and_create_routes(db: AsyncSession = Depends(get_db)):
         sequence += 1
 
     await db.commit()
-    return {"message": "Orders finalized and route created successfully!", "route_id": new_route.id}
+    return {"message": "Orders finalized, payments deducted, notifications sent, and route created successfully!", "route_id": new_route.id}
 
 
 @orders_router.get("/me/latest-status", response_model=OrderStatus)

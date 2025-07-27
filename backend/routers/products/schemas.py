@@ -34,3 +34,20 @@ class ProductUpdate(BaseModel):
 class ProductDetail(Product):
     """Extends the Product schema to include its list of deals."""
     deals: List[DealSchema] = []
+
+class DealStatus(BaseModel):
+    """Represents the status of a single deal tier."""
+    threshold: int
+    discount: float
+    is_unlocked: bool
+
+class ProductDashboardView(BaseModel):
+    """Represents the dashboard view for a single product."""
+    id: uuid.UUID
+    name: str
+    unit: str
+    current_demand: int
+    deals_status: List[DealStatus] = []
+
+    class Config:
+        from_attributes = True
