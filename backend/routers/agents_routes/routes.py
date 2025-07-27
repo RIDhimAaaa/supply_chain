@@ -120,6 +120,63 @@ async def get_stop_manifest(
         return manifest
 
 
+@agents_routes_router.put("/stops/{stop_id}/status")
+async def update_stop_status(
+    stop_id: uuid.UUID,
+    status_data: dict,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Enhanced endpoint for agents to update stop status with multiple status options.
+    Supports: 'pending', 'in_progress', 'completed', 'failed'
+    """
+    valid_statuses = ['pending', 'in_progress', 'completed', 'failed']
+    new_status = status_data.get('status')
+    
+    if new_status not in valid_statuses:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+        )
+
+    # Verify the agent owns this stop
+    query = select(RouteStop).join(DeliveryRoute).where(
+        RouteStop.id == stop_id,
+        DeliveryRoute.agent_id == uuid.UUID(current_user.get("user_id"))
+    )
+    stop_to_update = (await db.execute(query)).scalar_one_or_none()
+
+    if not stop_to_update:
+        raise HTTPException(status_code=404, detail="Stop not found or not part of your route.")
+
+    # Update the stop status
+    old_status = stop_to_update.status
+    stop_to_update.status = new_status
+    
+    # If this stop is completed, check if entire route should be marked completed
+    if new_status == 'completed':
+        route_query = select(DeliveryRoute).options(
+            selectinload(DeliveryRoute.stops)
+        ).where(DeliveryRoute.id == stop_to_update.route_id)
+        route = (await db.execute(route_query)).scalar_one()
+        
+        # Check if all stops are completed
+        all_completed = all(stop.status == 'completed' for stop in route.stops)
+        if all_completed:
+            route.status = 'completed'
+
+    await db.commit()
+
+    return {
+        "message": f"Stop status updated from '{old_status}' to '{new_status}'",
+        "stop_id": stop_id,
+        "old_status": old_status,
+        "new_status": new_status,
+        "stop_type": stop_to_update.stop_type
+    }
+
+
 # --- This endpoint remains the same ---
 @agents_routes_router.put("/stops/{stop_id}/complete")
 async def complete_a_stop(
@@ -141,3 +198,69 @@ async def complete_a_stop(
     await db.commit()
 
     return {"message": "Stop marked as complete."}
+
+
+@agents_routes_router.get("/me/route-progress")
+async def get_route_progress(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for agents to get real-time progress of their current route.
+    Shows completed, pending, and failed stops with progress percentage.
+    """
+    agent_id = uuid.UUID(current_user.get("user_id"))
+    
+    # Get today's route with all stops
+    query = select(DeliveryRoute).options(
+        selectinload(DeliveryRoute.stops).selectinload(RouteStop.profile)
+    ).where(
+        DeliveryRoute.agent_id == agent_id,
+        DeliveryRoute.route_date == date.today()
+    )
+    route = (await db.execute(query)).scalar_one_or_none()
+
+    if not route:
+        return {
+            "message": "No route assigned for today",
+            "route_id": None,
+            "progress": 0,
+            "stops_summary": {}
+        }
+
+    # Calculate progress statistics
+    total_stops = len(route.stops)
+    completed_stops = sum(1 for stop in route.stops if stop.status == 'completed')
+    pending_stops = sum(1 for stop in route.stops if stop.status == 'pending')
+    in_progress_stops = sum(1 for stop in route.stops if stop.status == 'in_progress')
+    failed_stops = sum(1 for stop in route.stops if stop.status == 'failed')
+    
+    progress_percentage = (completed_stops / total_stops * 100) if total_stops > 0 else 0
+
+    # Find current/next stop
+    current_stop = None
+    for stop in sorted(route.stops, key=lambda s: s.sequence_order):
+        if stop.status in ['pending', 'in_progress']:
+            current_stop = {
+                "id": stop.id,
+                "type": stop.stop_type,
+                "sequence": stop.sequence_order,
+                "profile_name": stop.profile.full_name if stop.profile else "Unknown",
+                "status": stop.status
+            }
+            break
+
+    return {
+        "route_id": route.id,
+        "route_status": route.status,
+        "progress_percentage": round(progress_percentage, 1),
+        "stops_summary": {
+            "total": total_stops,
+            "completed": completed_stops,
+            "pending": pending_stops,
+            "in_progress": in_progress_stops,
+            "failed": failed_stops
+        },
+        "current_stop": current_stop,
+        "message": f"Route {progress_percentage:.1f}% complete ({completed_stops}/{total_stops} stops)"
+    }

@@ -13,7 +13,7 @@ from dependencies.rbac import require_permission
 from dependencies.get_current_user import get_current_user
 from config import get_db
 from models import CartItem, Product, Deal, Profile, Role, DeliveryRoute, RouteStop
-from .schemas import OrderStatus # Import the schema from this folder
+from .schemas import OrderStatus, DeliveryConfirmation, DeliveryFeedback # Import the schema from this folder
 from utils.notifications import send_order_confirmation_sms # Import the new mock function
 
 orders_router = APIRouter(prefix="/orders", tags=["Orders & Tracking"])
@@ -216,4 +216,189 @@ async def get_my_order_history(
     order_history = result.scalars().all()
 
     return order_history
+
+
+@orders_router.post(
+    "/me/confirm-delivery",
+    response_model=DeliveryFeedback,
+    dependencies=[Depends(require_permission(resource="orders", permission="write"))]
+)
+async def confirm_delivery_receipt(
+    confirmation: DeliveryConfirmation,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for vendors to confirm receipt of their delivery and provide feedback.
+    This marks the order as completely fulfilled in the system.
+    """
+    from datetime import datetime
+    
+    vendor_id = uuid.UUID(current_user.get("user_id"))
+
+    # Check if vendor has any delivered orders today
+    delivered_orders_query = select(CartItem).where(
+        CartItem.vendor_id == vendor_id,
+        CartItem.is_finalized == True,
+        CartItem.finalized_at >= date.today()
+    )
+    delivered_orders = (await db.execute(delivered_orders_query)).scalars().all()
+
+    if not delivered_orders:
+        raise HTTPException(
+            status_code=404, 
+            detail="No delivered orders found for today to confirm"
+        )
+
+    # Create a confirmation record (in production, this would be a separate table)
+    confirmation_id = uuid.uuid4()
+    confirmation_time = datetime.now()
+
+    # Update all today's orders with delivery confirmation status
+    for order in delivered_orders:
+        # Add delivery confirmation fields (ideally this would be in a separate table)
+        order.delivery_confirmed = confirmation.received
+        order.delivery_rating = confirmation.rating
+        order.delivery_feedback = confirmation.feedback
+        order.confirmed_at = confirmation_time
+
+    await db.commit()
+
+    # Return confirmation details
+    return DeliveryFeedback(
+        confirmation_id=confirmation_id,
+        vendor_id=vendor_id,
+        order_date=date.today().isoformat(),
+        received=confirmation.received,
+        rating=confirmation.rating,
+        feedback=confirmation.feedback,
+        missing_items=confirmation.missing_items,
+        damaged_items=confirmation.damaged_items,
+        confirmed_at=confirmation_time.isoformat()
+    )
+
+
+@orders_router.get(
+    "/me/delivery-history",
+    dependencies=[Depends(require_permission(resource="orders", permission="read"))]
+)
+async def get_delivery_confirmations(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for vendors to view their delivery confirmation history.
+    Shows past feedback and ratings given for deliveries.
+    """
+    vendor_id = uuid.UUID(current_user.get("user_id"))
+
+    # Get all confirmed deliveries for this vendor
+    confirmed_orders_query = select(CartItem).options(
+        selectinload(CartItem.product)
+    ).where(
+        CartItem.vendor_id == vendor_id,
+        CartItem.is_finalized == True
+    ).order_by(CartItem.finalized_at.desc())
+
+    result = await db.execute(confirmed_orders_query)
+    confirmed_orders = result.scalars().all()
+
+    delivery_history = []
+    for order in confirmed_orders:
+        # Check if this order has confirmation data (simulated)
+        has_confirmation = hasattr(order, 'delivery_confirmed') and order.delivery_confirmed is not None
+        
+        delivery_history.append({
+            "order_id": order.id,
+            "product_name": order.product.name if order.product else "Unknown",
+            "quantity": order.quantity,
+            "final_price": float(order.final_price) if order.final_price else 0.0,
+            "finalized_at": order.finalized_at.isoformat() if order.finalized_at else None,
+            "confirmed": has_confirmation,
+            "rating": getattr(order, 'delivery_rating', None) if has_confirmation else None,
+            "feedback": getattr(order, 'delivery_feedback', None) if has_confirmation else None,
+            "confirmed_at": getattr(order, 'confirmed_at', None).isoformat() if has_confirmation and hasattr(order, 'confirmed_at') else None
+        })
+
+    # Calculate summary statistics
+    total_orders = len(delivery_history)
+    confirmed_orders = sum(1 for order in delivery_history if order["confirmed"])
+    avg_rating = None
+    
+    if confirmed_orders > 0:
+        ratings = [order["rating"] for order in delivery_history if order["rating"] is not None]
+        if ratings:
+            avg_rating = round(sum(ratings) / len(ratings), 1)
+
+    return {
+        "summary": {
+            "total_orders": total_orders,
+            "confirmed_deliveries": confirmed_orders,
+            "pending_confirmations": total_orders - confirmed_orders,
+            "average_rating": avg_rating
+        },
+        "delivery_history": delivery_history
+    }
+
+
+@orders_router.get(
+    "/me/pending-confirmations",
+    dependencies=[Depends(require_permission(resource="orders", permission="read"))]
+)
+async def get_pending_delivery_confirmations(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for vendors to see orders that have been delivered but not yet confirmed.
+    """
+    vendor_id = uuid.UUID(current_user.get("user_id"))
+
+    # Find vendor's delivery stop for today
+    stop_query = select(RouteStop).join(DeliveryRoute).where(
+        RouteStop.profile_id == vendor_id,
+        RouteStop.stop_type == 'delivery',
+        RouteStop.status == 'completed',  # Delivery completed by agent
+        DeliveryRoute.route_date == date.today()
+    )
+    delivery_stop = (await db.execute(stop_query)).scalar_one_or_none()
+
+    if not delivery_stop:
+        return {
+            "message": "No completed deliveries found for today",
+            "pending_orders": [],
+            "needs_confirmation": False
+        }
+
+    # Get all finalized orders for today that haven't been confirmed
+    pending_orders_query = select(CartItem).options(
+        selectinload(CartItem.product)
+    ).where(
+        CartItem.vendor_id == vendor_id,
+        CartItem.is_finalized == True,
+        CartItem.finalized_at >= date.today()
+    )
+
+    result = await db.execute(pending_orders_query)
+    pending_orders = result.scalars().all()
+
+    # Filter out already confirmed orders (simulated check)
+    unconfirmed_orders = []
+    for order in pending_orders:
+        is_confirmed = hasattr(order, 'delivery_confirmed') and order.delivery_confirmed is not None
+        if not is_confirmed:
+            unconfirmed_orders.append({
+                "order_id": order.id,
+                "product_name": order.product.name if order.product else "Unknown",
+                "quantity": order.quantity,
+                "final_price": float(order.final_price) if order.final_price else 0.0,
+                "finalized_at": order.finalized_at.isoformat() if order.finalized_at else None
+            })
+
+    return {
+        "message": f"You have {len(unconfirmed_orders)} deliveries waiting for confirmation" if unconfirmed_orders else "All deliveries confirmed!",
+        "pending_orders": unconfirmed_orders,
+        "needs_confirmation": len(unconfirmed_orders) > 0,
+        "total_pending": len(unconfirmed_orders)
+    }
 
