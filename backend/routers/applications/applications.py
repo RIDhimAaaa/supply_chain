@@ -43,6 +43,45 @@ async def submit_application(
 
     return new_application
 
+
+@applications_router.get("/me", response_model=List[ApplicationSchema])
+async def get_my_applications(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Endpoint for a user to see the status of their own applications."""
+    user_id_str = current_user.get("user_id")
+    
+    query = select(ApplicationModel).where(ApplicationModel.user_id == uuid.UUID(user_id_str))
+    result = await db.execute(query)
+    applications = result.scalars().all()
+    
+    return applications
+
+@applications_router.get(
+    "/",
+    response_model=List[ApplicationSchema],
+    dependencies=[Depends(require_permission(resource="admin", permission="read"))]
+)
+async def list_all_applications(
+    status: str | None = None, # Optional query parameter to filter by status
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint for an admin to fetch all applications.
+    Can be filtered by status, e.g., /applications?status=pending
+    """
+    query = select(ApplicationModel)
+    
+    if status:
+        query = query.where(ApplicationModel.status == status)
+        
+    result = await db.execute(query)
+    applications = result.scalars().all()
+    
+    return applications
+
+
 @applications_router.put(
     "/{application_id}",
     response_model=ApplicationSchema,
