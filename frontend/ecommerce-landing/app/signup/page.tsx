@@ -10,6 +10,7 @@ import { Factory, Loader2 } from "lucide-react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { authApi, SignupRequest, ApiError, validators, onboardingManager } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
+import axios from "axios"
 
 const translations = {
   english: {

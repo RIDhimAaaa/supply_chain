@@ -9,6 +9,14 @@
 }
 
 @layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Default (Light) Theme - Supplier Side */
   :root {
     --background: 0 0% 100%;
     --foreground: 0 0% 3.9%;
@@ -44,6 +52,8 @@
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
+
+  /* Dark Mode for Supplier Side */
   .dark {
     --background: 0 0% 3.9%;
     --foreground: 0 0% 98%;
@@ -78,14 +88,42 @@
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
-}
 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
+  /* Vendor Side Theme (This is the dark theme you showed in the image) */
+  .vendor-theme {
+    --background: 210 40% 4%;
+    --foreground: 210 40% 98%;
+    --card: 210 40% 8%;
+    --card-foreground: 210 40% 98%;
+    --popover: 210 40% 8%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 262 83% 58%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 12%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 210 40% 12%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 210 40% 16%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 210 40% 16%;
+    --input: 210 40% 16%;
+    --ring: 262 83% 58%;
+    --radius: 0.75rem;
+    --chart-1: 220 70% 50%; /* Using these for some supply- colors in vendor theme */
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }
 
@@ -207,7 +245,6 @@
     box-shadow: 0 0 20px rgba(59, 130, 246, 0.1), 0 0 40px rgba(139, 92, 246, 0.05);
   }
 
-  /* Enhanced animations */
   @keyframes slide-in-from-top-4 {
     from {
       opacity: 0;
@@ -230,4 +267,22 @@
   .duration-500 {
     animation-duration: 500ms;
   }
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a3a;
 }

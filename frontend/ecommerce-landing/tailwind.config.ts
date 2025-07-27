@@ -7,7 +7,7 @@ const config = {
     "./components/**/*.{ts,tsx}",
     "./app/**/*.{ts,tsx}",
     "./src/**/*.{ts,tsx}",
-    "*.{js,ts,jsx,tsx,mdx}",
+    "*.{js,ts,jsx,tsx,mdx}", // Keep this if it's necessary for your project structure
   ],
   prefix: "",
   theme: {
@@ -23,6 +23,7 @@ const config = {
         sf: ["-apple-system", "BlinkMacSystemFont", "SF Pro Display", "SF Pro Text", "system-ui", "sans-serif"],
       },
       colors: {
+        // Existing colors, referring to HSL CSS variables
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -56,6 +57,33 @@ const config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+
+        // ADDED: Chart colors directly, will be converted to CSS vars by addVariablesForColors
+        'chart-1': "hsl(var(--chart-1))",
+        'chart-2': "hsl(var(--chart-2))",
+        'chart-3': "hsl(var(--chart-3))",
+        'chart-4': "hsl(var(--chart-4))",
+        'chart-5': "hsl(var(--chart-5))",
+
+        // ADDED: Sidebar colors directly, will be converted to CSS vars by addVariablesForColors
+        'sidebar-background': "hsl(var(--sidebar-background))",
+        'sidebar-foreground': "hsl(var(--sidebar-foreground))",
+        'sidebar-primary': "hsl(var(--sidebar-primary))",
+        'sidebar-primary-foreground': "hsl(var(--sidebar-primary-foreground))",
+        'sidebar-accent': "hsl(var(--sidebar-accent))",
+        'sidebar-accent-foreground': "hsl(var(--sidebar-accent-foreground))",
+        'sidebar-border': "hsl(var(--sidebar-border))",
+        'sidebar-ring': "hsl(var(--sidebar-ring))",
+
+        // ADDED: The "supply" aliases for your vendor dashboard
+        // These will refer to the HSL values defined in global.css
+        'supply-dark': 'hsl(var(--background))', // Maps to current background in vendor theme
+        'supply-card': 'hsl(var(--card))',       // Maps to current card in vendor theme
+        'supply-border': 'hsl(var(--border))',   // Maps to current border in vendor theme
+        'supply-purple': 'hsl(var(--primary))',  // Maps to current primary in vendor theme
+        'supply-orange': 'hsl(var(--accent))',   // Maps to current accent in vendor theme
+        'supply-green': 'hsl(var(--chart-2))',   // Maps to current chart-2 in vendor theme
+        'supply-teal': 'hsl(var(--chart-4))',    // Maps to current chart-4 in vendor theme
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -87,9 +115,11 @@ const config = {
       },
     },
   },
+  // Keep your plugins as they are
   plugins: [require("tailwindcss-animate"), addVariablesForColors],
 } satisfies Config
 
+// Keep your existing addVariablesForColors plugin as is
 // This plugin adds each Tailwind color as a global CSS variable, e.g. var(--gray-200).
 function addVariablesForColors({ addBase, theme }: any) {
   try {
